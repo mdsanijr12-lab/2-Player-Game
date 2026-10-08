@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">SANI 4Player Game</string>
+    <string name="splash_logo_desc">SANI 4Player Game Launch Branding</string>
+    <string name="home_banner_desc">SANI 4Player Game Home Banner</string>
+    <string name="search_hint">Search 105+ games, categories, keywords…</string>
+    <string name="favorites_filter">Favorites</string>
+    <string name="settings_title">Settings</string>
+    <string name="language_switch">Language</string>
+    <string name="start_match">START MATCH</string>
+    <string name="pause_game">Pause</string>
+    <string name="resume_game">Resume</string>
+    <string name="restart_game">Restart</string>
+    <string name="exit_game">Exit</string>
+    <string name="replay_match">Replay</string>
+    <string name="back_to_games">Back to Games</string>
+</resources>

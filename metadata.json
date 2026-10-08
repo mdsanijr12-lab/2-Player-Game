@@ -1,0 +1,6 @@
+{
+  "name": "SANI 4Player Game",
+  "description": "Complete 100% offline 2-to-4 player local multiplayer and VS Bot mini-game collection featuring 105 unique top-down games in English and Bangla.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
