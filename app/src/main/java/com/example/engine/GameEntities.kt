@@ -3,10 +3,6 @@ package com.example.engine
 import androidx.compose.ui.graphics.Color
 import com.example.model.PlayerId
 
-/**
- * Virtual arena coordinate space is 1000f x 1000f (top-down 2D square/adaptive board)
- * so physics and gameplay remain 100% consistent across all phone/tablet screen sizes.
- */
 const val ARENA_SIZE = 1000f
 const val ARENA_CENTER = 500f
 
@@ -38,20 +34,27 @@ data class PlayerEntity(
     var vx: Float = 0f,
     var vy: Float = 0f,
     var angleRad: Float = 0f,
+    var turretAngleRad: Float = 0f,
     var radius: Float = 30f,
     var score: Int = 0,
-    var progressSteps: Int = 0, // Used for laps, checkpoints, bridge planks, sequence steps
+    var progressSteps: Int = 0,
+    var racePosition: Int = id.number,
     var eliminated: Boolean = false,
     var surviveTimeSec: Float = 0f,
     var actionCooldown: Float = 0f,
     var dashCooldown: Float = 0f,
     var dashTimer: Float = 0f,
-    var jumpZ: Float = 0f,      // > 0f when jumping over floor lasers/shockwaves/lava
+    var dodgeTimer: Float = 0f,
+    var attackAnimTimer: Float = 0f,
+    var fallingTimer: Float = 0f,
+    var shotCharge: Float = 0f,
+    var jumpZ: Float = 0f,
     var jumpVz: Float = 0f,
-    var carryingItem: Int = 0,  // > 0 when carrying crystal, chest, flag, plank, or dodgeball
-    var isTaggedOrCursed: Boolean = false, // Shadow Mark / Bomb Holder / Halo Holder
+    var carryingItem: Int = 0,
+    var isTaggedOrCursed: Boolean = false,
     var morphShape: MorphShape = MorphShape.entries[id.index % 3],
     var respawnTimer: Float = 0f,
+    var botSpeedFactor: Float = 1.0f,
     val basePos: Pair<Float, Float>
 )
 
@@ -102,7 +105,7 @@ data class WorldEntity(
     var radius: Float = 24f,
     var width: Float = 48f,
     var height: Float = 48f,
-    var ownerId: Int = -1, // -1 neutral, 0..3 player index
+    var ownerId: Int = -1,
     var value: Int = 1,
     var timer: Float = 0f,
     var maxTimer: Float = 3f,
@@ -114,8 +117,8 @@ data class WorldEntity(
 data class GridCell(
     val row: Int,
     val col: Int,
-    var ownerId: Int = -1, // -1 neutral, 0..3 player index
-    var state: Int = 0,    // 0 normal, 1 highlighted/safe, 2 hazard/collapsed, 3 wall, 4 hidden pair
+    var ownerId: Int = -1,
+    var state: Int = 0, // 0 normal, 1 highlighted/safe, 2 hazard/collapsed, 3 wall, 4 hidden pair
     var symbol: Int = 0,
     var heat: Float = 0f,
     var label: String = ""

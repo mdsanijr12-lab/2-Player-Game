@@ -3,6 +3,8 @@ package com.example.engine
 import androidx.compose.ui.graphics.Color
 import com.example.audio.SfxType
 import com.example.audio.SoundEngine
+import com.example.model.ArenaTheme
+import com.example.model.ControlScheme
 import com.example.model.MatchConfig
 import com.example.model.MatchResult
 import com.example.model.MechanicGroup
@@ -77,12 +79,12 @@ class GameEngine(
                 hudBannerBn = "● হারায় ▲ | ▲ হারায় ■ | ■ হারায় ●"
             }
             MechanicGroup.REACTION_TAP -> {
-                hudBannerEn = "WAIT FOR GREEN PULSE!"
-                hudBannerBn = "সবুজ সংকেতের জন্য অপেক্ষা করুন!"
+                hudBannerEn = "WAIT FOR GREEN SIGNAL, THEN STRIKE!"
+                hudBannerBn = "সবুজ সিগন্যাল দেখে মুহূর্তেই STRIKE চাপুন!"
             }
             else -> {
-                hudBannerEn = game.objectiveEn
-                hudBannerBn = game.objectiveBn
+                hudBannerEn = game.briefInstruction(com.example.model.AppLanguage.ENGLISH)
+                hudBannerBn = game.briefInstruction(com.example.model.AppLanguage.BANGLA)
             }
         }
     }
@@ -91,7 +93,7 @@ class GameEngine(
         val pads = entities.filter { it.kind == EntityKind.QUIZ_PAD }
         if (pads.isEmpty()) return
         when (game.variantIndex) {
-            0 -> { // Number Rush
+            0 -> {
                 val base = Random.nextInt(1, 50)
                 val order = pads.indices.shuffled()
                 val minVal = base
@@ -104,7 +106,7 @@ class GameEngine(
                 hudBannerEn = "Claim Lowest Number: $minVal"
                 hudBannerBn = "সর্বনিম্ন সংখ্যাটি নিন: $minVal"
             }
-            1 -> { // Shape Match
+            1 -> {
                 val shapes = listOf("●", "▲", "◆", "■")
                 val targetIdx = Random.nextInt(shapes.size)
                 promptTargetValue = targetIdx
@@ -115,7 +117,7 @@ class GameEngine(
                 hudBannerEn = "Match Target Shape: ${shapes[targetIdx]}"
                 hudBannerBn = "টার্গেট শেপ মেলান: ${shapes[targetIdx]}"
             }
-            2 -> { // Quick Math
+            2 -> {
                 val a = Random.nextInt(3, 12)
                 val b = Random.nextInt(3, 10)
                 val ans = a * b
@@ -130,7 +132,7 @@ class GameEngine(
                 hudBannerEn = "Solve: $a × $b = ?"
                 hudBannerBn = "সমাধান করুন: $a × $b = ?"
             }
-            else -> { // Pattern Break / Direction Master
+            else -> {
                 val arrows = listOf("⬆ N", "➡ E", "⬇ S", "⬅ W")
                 val targetIdx = Random.nextInt(arrows.size)
                 promptTargetValue = targetIdx
@@ -176,7 +178,6 @@ class GameEngine(
         waveTimer += dt
         secondaryTimer += dt
 
-        // 1. Collect inputs for all active players (Human or Bot)
         val frameInputs = players.map { p ->
             if (p.isBot) {
                 botAi.computeBotInput(
@@ -200,42 +201,58 @@ class GameEngine(
             }
         }
 
-        // 2. Update Player Physics & Controls
         updatePlayers(dt, frameInputs)
-
-        // 3. Update Game-Specific Mechanics
-        updateGameMechanics(dt, frameInputs)
-
-        // 4. Update Particles
+        updateGameMechanics(dt)
         updateParticles(dt)
-
-        // 5. Check Win / Match End Conditions
         checkMatchCompletion()
     }
 
     private fun updatePlayers(dt: Float, inputs: List<PlayerInputState>) {
-        val isIce = game.arenaTheme == com.example.model.ArenaTheme.ICE_RINK
+        val isIce = game.arenaTheme == ArenaTheme.ICE_RINK
+        val scheme = game.effectiveControlScheme
         val baseSpeed = when (game.mechanicGroup) {
-            MechanicGroup.CIRCUIT_RACING, MechanicGroup.HIGHWAY_DODGE -> 310f
+            MechanicGroup.CIRCUIT_RACING, MechanicGroup.HIGHWAY_DODGE -> 315f
             MechanicGroup.REACTION_TAP -> 0f
             else -> 275f
         }
 
         players.forEachIndexed { idx, p ->
             if (p.eliminated) return@forEachIndexed
-            p.surviveTimeSec += dt
 
-            if (p.respawnTimer > 0f) {
-                p.respawnTimer = (p.respawnTimer - dt).coerceAtLeast(0f)
+            // Handle fall-off-platform animation in Push/Fall Arena
+            if (p.fallingTimer > 0f) {
+                p.fallingTimer -= dt
+                p.x += p.vx * dt * 0.4f
+                p.y += p.vy * dt * 0.4f
+                if (p.fallingTimer <= 0f) {
+                    p.fallingTimer = 0f
+                    if (game.winRule == WinRule.LAST_SURVIVING) {
+                        p.eliminated = true
+                    } else {
+                        // Respawn back near center platform
+                        p.x = ARENA_CENTER + (Random.nextFloat() - 0.5f) * 140f
+                        p.y = ARENA_CENTER + (Random.nextFloat() - 0.5f) * 140f
+                        p.vx = 0f
+                        p.vy = 0f
+                        p.respawnTimer = 0.85f
+                    }
+                }
+                return@forEachIndexed
             }
+
+            p.surviveTimeSec += dt
+            if (p.respawnTimer > 0f) p.respawnTimer = (p.respawnTimer - dt).coerceAtLeast(0f)
             if (p.actionCooldown > 0f) p.actionCooldown = (p.actionCooldown - dt).coerceAtLeast(0f)
             if (p.dashCooldown > 0f) p.dashCooldown = (p.dashCooldown - dt).coerceAtLeast(0f)
             if (p.dashTimer > 0f) p.dashTimer = (p.dashTimer - dt).coerceAtLeast(0f)
+            if (p.dodgeTimer > 0f) p.dodgeTimer = (p.dodgeTimer - dt).coerceAtLeast(0f)
+            if (p.attackAnimTimer > 0f) p.attackAnimTimer = (p.attackAnimTimer - dt).coerceAtLeast(0f)
+            if (p.shotCharge > 0f) p.shotCharge = (p.shotCharge - dt * 1.8f).coerceAtLeast(0f)
 
-            // Jump Z physics
+            // Jump Z-axis gravity physics
             if (p.jumpZ > 0f || p.jumpVz != 0f) {
                 p.jumpZ += p.jumpVz * dt
-                p.jumpVz -= 1800f * dt
+                p.jumpVz -= 1850f * dt
                 if (p.jumpZ <= 0f) {
                     p.jumpZ = 0f
                     p.jumpVz = 0f
@@ -244,49 +261,73 @@ class GameEngine(
 
             val inp = inputs[idx]
             val carrySlowdown = if (p.carryingItem > 0 && game.variantIndex == 1) 0.78f else 1.0f
-            val dashMultiplier = if (p.dashTimer > 0f) 2.15f else 1.0f
-            val effectiveSpeed = baseSpeed * carrySlowdown * dashMultiplier
+            val dashMultiplier = if (p.dashTimer > 0f) 2.05f else 1.0f
+            // Fair Bot Speed Scaling: Easy (75%-90%), Normal (90%-105%), Hard (100%-115%)
+            val speedScale = if (p.isBot) p.botSpeedFactor else 1.0f
+            val effectiveSpeed = baseSpeed * speedScale * carrySlowdown * dashMultiplier
 
-            if (game.controlScheme == com.example.model.ControlScheme.RACING_CONTROLS) {
-                val gas = if (inp.primaryPressed || hypot(inp.moveX, inp.moveY) > 0.25f) 1f else 0.2f
-                val brake = if (inp.secondaryPressed) 0.35f else 1f
-                if (hypot(inp.moveX, inp.moveY) > 0.12f) {
+            if (scheme == ControlScheme.RACING_CONTROLS) {
+                val inputMag = hypot(inp.moveX, inp.moveY)
+                val gas = if (inp.primaryPressed) 1.05f else if (inputMag > 0.2f) 0.85f else 0.1f
+                val brake = if (inp.secondaryPressed) 0.35f else 1.0f
+                if (inputMag > 0.12f) {
                     val targetAngle = atan2(inp.moveY, inp.moveX)
                     p.angleRad = targetAngle
                 }
-                val targetVx = cos(p.angleRad) * effectiveSpeed * gas * brake * hypot(inp.moveX, inp.moveY).coerceAtLeast(0.45f)
-                val targetVy = sin(p.angleRad) * effectiveSpeed * gas * brake * hypot(inp.moveX, inp.moveY).coerceAtLeast(0.45f)
-                val lerp = if (isIce) 3.2f * dt else 9.5f * dt
+                val throttle = if (inp.primaryPressed || inputMag > 0.15f) inputMag.coerceAtLeast(0.55f) else 0f
+                val targetVx = cos(p.angleRad) * effectiveSpeed * gas * brake * throttle
+                val targetVy = sin(p.angleRad) * effectiveSpeed * gas * brake * throttle
+                val lerp = if (isIce) 3.0f * dt else 9.0f * dt
                 p.vx += (targetVx - p.vx) * lerp.coerceIn(0f, 1f)
                 p.vy += (targetVy - p.vy) * lerp.coerceIn(0f, 1f)
             } else if (baseSpeed > 0f) {
                 val targetVx = inp.moveX * effectiveSpeed
                 val targetVy = inp.moveY * effectiveSpeed
-                val lerp = if (isIce) 2.8f * dt else 11f * dt
+                val lerp = if (isIce) 2.8f * dt else 11.0f * dt
                 p.vx += (targetVx - p.vx) * lerp.coerceIn(0f, 1f)
                 p.vy += (targetVy - p.vy) * lerp.coerceIn(0f, 1f)
-                if (hypot(inp.moveX, inp.moveY) > 0.15f) {
+                if (hypot(inp.moveX, inp.moveY) > 0.14f) {
                     p.angleRad = atan2(inp.moveY, inp.moveX)
+                    if (scheme != ControlScheme.TANK_CONTROLS) {
+                        p.turretAngleRad = p.angleRad
+                    } else if (!inp.secondaryPressed) {
+                        p.turretAngleRad = p.angleRad
+                    }
                 }
             }
 
-            // Secondary Button: Dash / Pass
-            if (inp.secondaryJustTriggered && p.dashCooldown <= 0f) {
-                p.dashTimer = 0.22f
-                p.dashCooldown = 1.1f
-                soundEngine.playSfx(SfxType.JUMP)
-                spawnBurst(p.x, p.y, p.id.color, 6)
+            // Secondary Button Handling per Genre ControlScheme
+            if (inp.secondaryJustTriggered) {
+                handlePlayerSecondaryAction(p, scheme)
             }
 
-            // Primary Button: Jump / Shoot / Attack / Action
+            // Primary Button Handling per Genre ControlScheme
             if (inp.primaryJustTriggered) {
-                handlePlayerPrimaryAction(p)
+                handlePlayerPrimaryAction(p, scheme)
             }
 
-            val nextX = (p.x + p.vx * dt).coerceIn(75f, 925f)
-            val nextY = (p.y + p.vy * dt).coerceIn(75f, 925f)
+            var nextX = (p.x + p.vx * dt).coerceIn(72f, 928f)
+            var nextY = (p.y + p.vy * dt).coerceIn(72f, 928f)
 
-            // Check maze walls if applicable
+            // Circuit Racing Inner Island Boundary Collision (so cars must drive around the track!)
+            if (game.mechanicGroup == MechanicGroup.CIRCUIT_RACING) {
+                val inInnerIsland = nextX in 325f..675f && nextY in 325f..675f
+                if (inInnerIsland) {
+                    val dxLeft = abs(nextX - 325f)
+                    val dxRight = abs(675f - nextX)
+                    val dyTop = abs(nextY - 325f)
+                    val dyBottom = abs(675f - nextY)
+                    val minEdge = minOf(dxLeft, dxRight, dyTop, dyBottom)
+                    when (minEdge) {
+                        dxLeft -> { nextX = 322f; p.vx = -abs(p.vx) * 0.45f }
+                        dxRight -> { nextX = 678f; p.vx = abs(p.vx) * 0.45f }
+                        dyTop -> { nextY = 322f; p.vy = -abs(p.vy) * 0.45f }
+                        else -> { nextY = 678f; p.vy = abs(p.vy) * 0.45f }
+                    }
+                }
+            }
+
+            // Maze Wall Collisions
             if (gridSize > 0 && game.mechanicGroup == MechanicGroup.MAZE_RUNNER) {
                 val cellStep = ARENA_SIZE / gridSize
                 val c = (nextX / cellStep).toInt().coerceIn(0, gridSize - 1)
@@ -305,12 +346,12 @@ class GameEngine(
             }
         }
 
-        // Player-to-Player Collisions, Knockbacks & Tag Transfers
+        // Player-to-Player Collisions & Momentum Knockback
         for (i in 0 until players.size) {
             for (j in i + 1 until players.size) {
                 val a = players[i]
                 val b = players[j]
-                if (a.eliminated || b.eliminated) continue
+                if (a.eliminated || b.eliminated || a.fallingTimer > 0f || b.fallingTimer > 0f) continue
                 val dx = b.x - a.x
                 val dy = b.y - a.y
                 val dist = hypot(dx, dy)
@@ -319,14 +360,14 @@ class GameEngine(
                     val nx = dx / dist
                     val ny = dy / dist
                     val overlap = (minDist - dist) * 0.5f
-                    a.x = (a.x - nx * overlap).coerceIn(70f, 930f)
-                    a.y = (a.y - ny * overlap).coerceIn(70f, 930f)
-                    b.x = (b.x + nx * overlap).coerceIn(70f, 930f)
-                    b.y = (b.y + ny * overlap).coerceIn(70f, 930f)
+                    a.x = (a.x - nx * overlap).coerceIn(65f, 935f)
+                    a.y = (a.y - ny * overlap).coerceIn(65f, 935f)
+                    b.x = (b.x + nx * overlap).coerceIn(65f, 935f)
+                    b.y = (b.y + ny * overlap).coerceIn(65f, 935f)
 
-                    val bumpForce = if (game.mechanicGroup == MechanicGroup.BRAWL_KNOCKBACK) 380f else 170f
-                    val aBoost = if (a.dashTimer > 0f) 1.8f else 1f
-                    val bBoost = if (b.dashTimer > 0f) 1.8f else 1f
+                    val bumpForce = if (game.mechanicGroup == MechanicGroup.BRAWL_KNOCKBACK) 390f else 175f
+                    val aBoost = if (a.dashTimer > 0f || a.attackAnimTimer > 0f) 1.85f else 1f
+                    val bBoost = if (b.dashTimer > 0f || b.attackAnimTimer > 0f) 1.85f else 1f
                     a.vx -= nx * bumpForce * bBoost
                     a.vy -= ny * bumpForce * bBoost
                     b.vx += nx * bumpForce * aBoost
@@ -338,25 +379,102 @@ class GameEngine(
         }
     }
 
-    private fun handlePlayerPrimaryAction(p: PlayerEntity) {
-        if (p.actionCooldown > 0f && game.mechanicGroup != MechanicGroup.REACTION_TAP) return
+    private fun handlePlayerSecondaryAction(p: PlayerEntity, scheme: ControlScheme) {
+        when (scheme) {
+            ControlScheme.TANK_CONTROLS -> {
+                // AIM: Lock turret onto nearest target drone or enemy tank!
+                val nearestTarget = entities.filter {
+                    it.active && (it.kind == EntityKind.TARGET_DRONE ||
+                        it.kind == EntityKind.BUBBLE ||
+                        it.kind == EntityKind.BALLOON)
+                }.minByOrNull { hypot(it.x - p.x, it.y - p.y) }
+                val nearestRival = players.filter { it.id != p.id && !it.eliminated }
+                    .minByOrNull { hypot(it.x - p.x, it.y - p.y) }
 
-        when (game.controlScheme) {
-            com.example.model.ControlScheme.JOYSTICK_JUMP -> {
-                if (p.jumpZ <= 1f) {
-                    p.jumpVz = 620f
-                    p.jumpZ = 2f
-                    p.actionCooldown = 0.45f
+                val tx = nearestTarget?.x ?: nearestRival?.x
+                val ty = nearestTarget?.y ?: nearestRival?.y
+                if (tx != null && ty != null) {
+                    p.turretAngleRad = atan2(ty - p.y, tx - p.x)
+                } else {
+                    p.turretAngleRad += (PI / 4).toFloat()
+                }
+                soundEngine.playSfx(SfxType.CLICK)
+            }
+
+            ControlScheme.FIGHTING_CONTROLS -> {
+                // DODGE: Evasive sidestep roll with brief invulnerability
+                if (p.dashCooldown <= 0f) {
+                    p.dodgeTimer = 0.30f
+                    p.dashTimer = 0.20f
+                    p.dashCooldown = 1.0f
                     soundEngine.playSfx(SfxType.JUMP)
+                    spawnBurst(p.x, p.y, Color.White, 6)
                 }
             }
 
-            com.example.model.ControlScheme.JOYSTICK_SHOOT,
-            com.example.model.ControlScheme.SPORTS_CONTROLS -> {
-                p.actionCooldown = 0.35f
+            ControlScheme.RACING_CONTROLS -> {
+                // BRAKE / DRIFT tap
+                p.vx *= 0.72f
+                p.vy *= 0.72f
+            }
+
+            else -> {
+                // DASH / SPRINT / BOOST
+                if (p.dashCooldown <= 0f) {
+                    p.dashTimer = 0.24f
+                    p.dashCooldown = 1.05f
+                    soundEngine.playSfx(SfxType.JUMP)
+                    spawnBurst(p.x, p.y, p.id.color, 6)
+                }
+            }
+        }
+    }
+
+    private fun handlePlayerPrimaryAction(p: PlayerEntity, scheme: ControlScheme) {
+        if (p.actionCooldown > 0f && game.mechanicGroup != MechanicGroup.REACTION_TAP) return
+
+        when (scheme) {
+            ControlScheme.JUMP_DODGE_CONTROLS, ControlScheme.JOYSTICK_JUMP -> {
+                if (p.jumpZ <= 1f) {
+                    p.jumpVz = 640f
+                    p.jumpZ = 2f
+                    p.actionCooldown = 0.42f
+                    soundEngine.playSfx(SfxType.JUMP)
+                    spawnBurst(p.x, p.y, p.id.color, 6)
+                }
+            }
+
+            ControlScheme.TANK_CONTROLS, ControlScheme.JOYSTICK_SHOOT -> {
+                p.actionCooldown = 0.34f
+                p.attackAnimTimer = 0.18f
                 soundEngine.playSfx(SfxType.SHOOT)
-                // Fire projectile or kick/shoot nearby ball
-                var kickedBall = false
+                val fireAngle = p.turretAngleRad
+                // Tank chassis recoil
+                p.vx -= cos(fireAngle) * 75f
+                p.vy -= sin(fireAngle) * 75f
+                entities.add(
+                    WorldEntity(
+                        uid = nextUid(),
+                        kind = EntityKind.PROJECTILE,
+                        x = p.x + cos(fireAngle) * (p.radius + 16f),
+                        y = p.y + sin(fireAngle) * (p.radius + 16f),
+                        vx = cos(fireAngle) * 650f,
+                        vy = sin(fireAngle) * 650f,
+                        radius = 12f,
+                        ownerId = p.id.index,
+                        timer = 1.4f,
+                        color = p.id.color
+                    )
+                )
+            }
+
+            ControlScheme.SPORTS_CONTROLS -> {
+                p.actionCooldown = 0.32f
+                p.attackAnimTimer = 0.22f
+                p.shotCharge = 1.0f
+                soundEngine.playSfx(SfxType.SHOOT)
+
+                var struckBall = false
                 entities.filter {
                     it.active && (it.kind == EntityKind.BALL_SOCCER ||
                         it.kind == EntityKind.BALL_BASKET ||
@@ -365,25 +483,25 @@ class GameEngine(
                         it.kind == EntityKind.DISC_NEON ||
                         it.kind == EntityKind.DODGEBALL)
                 }.forEach { ball ->
-                    if (hypot(ball.x - p.x, ball.y - p.y) < p.radius + ball.radius + 45f) {
-                        ball.vx = cos(p.angleRad) * 560f
-                        ball.vy = sin(p.angleRad) * 560f
+                    if (hypot(ball.x - p.x, ball.y - p.y) < p.radius + ball.radius + 54f) {
+                        ball.vx = cos(p.angleRad) * 610f
+                        ball.vy = sin(p.angleRad) * 610f
                         ball.ownerId = p.id.index
-                        kickedBall = true
-                        spawnBurst(ball.x, ball.y, p.id.color, 8)
+                        struckBall = true
+                        spawnBurst(ball.x, ball.y, p.id.color, 10)
                     }
                 }
 
-                if (!kickedBall) {
+                if (!struckBall) {
                     entities.add(
                         WorldEntity(
                             uid = nextUid(),
                             kind = EntityKind.PROJECTILE,
                             x = p.x + cos(p.angleRad) * (p.radius + 14f),
                             y = p.y + sin(p.angleRad) * (p.radius + 14f),
-                            vx = cos(p.angleRad) * 620f,
-                            vy = sin(p.angleRad) * 620f,
-                            radius = 11f,
+                            vx = cos(p.angleRad) * 580f,
+                            vy = sin(p.angleRad) * 580f,
+                            radius = 12f,
                             ownerId = p.id.index,
                             timer = 1.4f,
                             color = p.id.color
@@ -392,34 +510,46 @@ class GameEngine(
                 }
             }
 
-            com.example.model.ControlScheme.JOYSTICK_ATTACK_DASH,
-            com.example.model.ControlScheme.JOYSTICK_ACTION -> {
-                p.actionCooldown = 0.40f
-                p.dashTimer = 0.16f
+            ControlScheme.FIGHTING_CONTROLS,
+            ControlScheme.PUSH_ARENA_CONTROLS,
+            ControlScheme.PUZZLE_TACTICAL_CONTROLS,
+            ControlScheme.JOYSTICK_ATTACK_DASH,
+            ControlScheme.JOYSTICK_ACTION -> {
+                p.actionCooldown = 0.38f
+                p.attackAnimTimer = 0.24f
                 soundEngine.playSfx(SfxType.HIT)
-                spawnBurst(p.x, p.y, p.id.color, 8)
+                spawnBurst(
+                    p.x + cos(p.angleRad) * 28f,
+                    p.y + sin(p.angleRad) * 28f,
+                    p.id.color,
+                    9
+                )
 
-                // Repel/Attack nearby rivals or kick bombs
+                // Melee / Push Knockback Hit Detection against opponents
+                val knockForce = if (scheme == ControlScheme.PUSH_ARENA_CONTROLS) 580f else 480f
                 players.forEach { other ->
-                    if (other.id != p.id && !other.eliminated) {
+                    if (other.id != p.id && !other.eliminated && other.fallingTimer <= 0f && other.dodgeTimer <= 0f) {
                         val d = hypot(other.x - p.x, other.y - p.y)
-                        if (d < 125f && d > 1f) {
-                            val mul = if (game.variantIndex == 3) -460f else 480f // Magnet can pull or push
-                            other.vx += ((other.x - p.x) / d) * abs(mul)
-                            other.vy += ((other.y - p.y) / d) * abs(mul)
+                        if (d < 135f && d > 1f) {
+                            val dirSign = if (game.variantIndex == 3 && game.mechanicGroup == MechanicGroup.BRAWL_KNOCKBACK) -1f else 1f
+                            other.vx += ((other.x - p.x) / d) * knockForce * dirSign
+                            other.vy += ((other.y - p.y) / d) * knockForce * dirSign
+                            spawnBurst(other.x, other.y, Color.White, 8)
                         }
                     }
                 }
+
+                // Kick bombs away
                 entities.filter { it.active && it.kind == EntityKind.BOMB }.forEach { bomb ->
                     val d = hypot(bomb.x - p.x, bomb.y - p.y)
-                    if (d < 120f && d > 1f) {
-                        bomb.vx = ((bomb.x - p.x) / d) * 480f
-                        bomb.vy = ((bomb.y - p.y) / d) * 480f
+                    if (d < 130f && d > 1f) {
+                        bomb.vx = ((bomb.x - p.x) / d) * 520f
+                        bomb.vy = ((bomb.y - p.y) / d) * 520f
                     }
                 }
 
-                // Color Territory paint burst
-                if (game.mechanicGroup == MechanicGroup.TERRITORY_PAINT && gridSize > 0) {
+                // Territory / Puzzle board interaction
+                if ((game.mechanicGroup == MechanicGroup.TERRITORY_PAINT || game.mechanicGroup == MechanicGroup.TILE_PUZZLE) && gridSize > 0) {
                     val step = ARENA_SIZE / gridSize
                     val pc = (p.x / step).toInt().coerceIn(0, gridSize - 1)
                     val pr = (p.y / step).toInt().coerceIn(0, gridSize - 1)
@@ -428,21 +558,28 @@ class GameEngine(
                             val nr = pr + dr
                             val nc = pc + dc
                             if (nr in 0 until gridSize && nc in 0 until gridSize) {
-                                grid[nr * gridSize + nc].ownerId = p.id.index
+                                val cell = grid[nr * gridSize + nc]
+                                if (cell.ownerId != p.id.index) {
+                                    cell.ownerId = p.id.index
+                                    if (game.mechanicGroup == MechanicGroup.TILE_PUZZLE) {
+                                        p.score += 1
+                                    }
+                                }
                             }
                         }
                     }
-                    recalculateTerritoryScores()
+                    if (game.mechanicGroup == MechanicGroup.TERRITORY_PAINT) {
+                        recalculateTerritoryScores()
+                    }
                 }
             }
 
-            com.example.model.ControlScheme.TAP_REACTION -> {
+            ControlScheme.TAP_REACTION -> {
                 if (reactionSignalActive) {
                     p.score += 2
                     soundEngine.playSfx(SfxType.SCORE)
                     spawnBurst(p.x, p.y, p.id.color, 12)
                     if (game.variantIndex in listOf(1, 3)) {
-                        // First to tap takes the round signal
                         reactionSignalActive = false
                         entities.firstOrNull { it.kind == EntityKind.SAFE_ZONE_RING }?.let {
                             it.timer = 1.4f + Random.nextFloat() * 1.2f
@@ -451,7 +588,6 @@ class GameEngine(
                         }
                     }
                 } else if (game.variantIndex in listOf(1, 3)) {
-                    // Early tap penalty in Reaction Test / Quick Draw
                     p.score = (p.score - 1).coerceAtLeast(0)
                     soundEngine.playSfx(SfxType.HIT)
                 } else {
@@ -491,11 +627,8 @@ class GameEngine(
         }
     }
 
-    private fun updateGameMechanics(dt: Float, inputs: List<PlayerInputState>) {
-        // Update projectiles
+    private fun updateGameMechanics(dt: Float) {
         val iter = entities.iterator()
-        val newlySpawned = mutableListOf<WorldEntity>()
-
         while (iter.hasNext()) {
             val e = iter.next()
             if (!e.active) {
@@ -512,7 +645,6 @@ class GameEngine(
                     iter.remove()
                     continue
                 }
-                // Check hits on targets or rival players
                 var hitSomething = false
                 entities.filter {
                     it.active && (it.kind == EntityKind.TARGET_DRONE ||
@@ -525,8 +657,7 @@ class GameEngine(
                 }.forEach { target ->
                     if (!hitSomething && hypot(target.x - e.x, target.y - e.y) < target.radius + e.radius + 10f) {
                         hitSomething = true
-                        val shooter = players.getOrNull(e.ownerId)
-                        shooter?.let { it.score += target.value.coerceAtLeast(1) }
+                        players.getOrNull(e.ownerId)?.let { it.score += target.value.coerceAtLeast(1) }
                         soundEngine.playSfx(SfxType.SCORE)
                         spawnBurst(target.x, target.y, e.color, 10)
                         if (target.kind != EntityKind.GOLF_HOLE && target.kind != EntityKind.CARNIVAL_PEG) {
@@ -537,11 +668,13 @@ class GameEngine(
                 }
                 if (!hitSomething) {
                     players.forEach { p ->
-                        if (p.id.index != e.ownerId && !p.eliminated && hypot(p.x - e.x, p.y - e.y) < p.radius + e.radius) {
+                        if (p.id.index != e.ownerId && !p.eliminated && p.dodgeTimer <= 0f &&
+                            hypot(p.x - e.x, p.y - e.y) < p.radius + e.radius
+                        ) {
                             hitSomething = true
                             players.getOrNull(e.ownerId)?.let { it.score += 1 }
-                            p.vx += e.vx * 0.4f
-                            p.vy += e.vy * 0.4f
+                            p.vx += e.vx * 0.42f
+                            p.vy += e.vy * 0.42f
                             soundEngine.playSfx(SfxType.HIT)
                             spawnBurst(p.x, p.y, e.color, 8)
                         }
@@ -551,64 +684,56 @@ class GameEngine(
                     iter.remove()
                     continue
                 }
+            } else if (e.kind == EntityKind.HIGHWAY_CAR) {
+                if (e.y > 940f) {
+                    e.y = 70f
+                    players.filter { !it.eliminated }.forEach { it.score += 1 }
+                }
+                players.forEach { p ->
+                    if (!p.eliminated && hypot(p.x - e.x, p.y - e.y) < p.radius + e.radius) {
+                        p.score = (p.score - 2).coerceAtLeast(0)
+                        p.y = 850f
+                        soundEngine.playSfx(SfxType.COLLISION)
+                        spawnBurst(p.x, p.y, Color(0xFFEF4444), 10)
+                    }
+                }
             } else {
-                // Bounce world entities inside arena walls
-                if (e.kind == EntityKind.HIGHWAY_CAR) {
-                    if (e.y > 940f) {
-                        e.y = 70f
-                        players.filter { !it.eliminated }.forEach { it.score += 1 }
-                    }
-                    players.forEach { p ->
-                        if (!p.eliminated && hypot(p.x - e.x, p.y - e.y) < p.radius + e.radius) {
-                            p.score = (p.score - 2).coerceAtLeast(0)
-                            p.y = 850f
-                            soundEngine.playSfx(SfxType.COLLISION)
-                            spawnBurst(p.x, p.y, Color(0xFFEF4444), 10)
-                        }
-                    }
-                } else {
-                    if (e.x < 90f || e.x > 910f) {
-                        e.vx = -e.vx
-                        e.x = e.x.coerceIn(90f, 910f)
-                    }
-                    if (e.y < 90f || e.y > 910f) {
-                        e.vy = -e.vy
-                        e.y = e.y.coerceIn(90f, 910f)
-                    }
+                // Friction for sports balls
+                if (e.kind == EntityKind.BALL_SOCCER || e.kind == EntityKind.BALL_BASKET) {
+                    e.vx *= (1f - 0.45f * dt)
+                    e.vy *= (1f - 0.45f * dt)
+                }
+                if (e.x < 90f || e.x > 910f) {
+                    e.vx = -e.vx
+                    e.x = e.x.coerceIn(90f, 910f)
+                }
+                if (e.y < 90f || e.y > 910f) {
+                    e.vy = -e.vy
+                    e.y = e.y.coerceIn(90f, 910f)
                 }
             }
         }
-        entities.addAll(newlySpawned)
 
-        // Execute Mechanic-Group Specific Rules
         when (game.mechanicGroup) {
             MechanicGroup.BRAWL_KNOCKBACK -> {
                 val ring = entities.firstOrNull { it.kind == EntityKind.SAFE_ZONE_RING }
                 val ringRadius = ring?.radius ?: 360f
                 players.forEach { p ->
-                    if (p.eliminated) return@forEach
+                    if (p.eliminated || p.fallingTimer > 0f) return@forEach
                     val d = hypot(p.x - ARENA_CENTER, p.y - ARENA_CENTER)
                     if (d > ringRadius) {
-                        // Knocked out of the ring! Award point to nearest other player
-                        val credit = players.filter { it.id != p.id && !it.eliminated }
+                        // Start visible fall into the abyss!
+                        val credit = players.filter { it.id != p.id && !it.eliminated && it.fallingTimer <= 0f }
                             .minByOrNull { hypot(it.x - p.x, it.y - p.y) }
                         credit?.let { it.score += 2 }
+                        p.fallingTimer = 0.55f
                         soundEngine.playSfx(SfxType.EXPLOSION)
                         spawnBurst(p.x, p.y, p.id.color, 14)
-                        if (game.winRule == WinRule.LAST_SURVIVING) {
-                            p.eliminated = true
-                        } else {
-                            p.x = ARENA_CENTER + (Random.nextFloat() - 0.5f) * 140f
-                            p.y = ARENA_CENTER + (Random.nextFloat() - 0.5f) * 140f
-                            p.vx = 0f
-                            p.vy = 0f
-                        }
                     }
                 }
-                // Magnet Arena crystal pickup
                 entities.filter { it.kind == EntityKind.CRYSTAL }.forEach { c ->
                     players.forEach { p ->
-                        if (!p.eliminated && hypot(p.x - c.x, p.y - c.y) < p.radius + c.radius) {
+                        if (!p.eliminated && p.fallingTimer <= 0f && hypot(p.x - c.x, p.y - c.y) < p.radius + c.radius) {
                             p.score += 2
                             c.x = Random.nextInt(220, 780).toFloat()
                             c.y = Random.nextInt(220, 780).toFloat()
@@ -655,7 +780,7 @@ class GameEngine(
                         soundEngine.playSfx(SfxType.EXPLOSION)
                         spawnBurst(bomb.x, bomb.y, Color(0xFFF97316), 18)
                         players.forEach { p ->
-                            if (!p.eliminated && hypot(p.x - bomb.x, p.y - bomb.y) < 165f) {
+                            if (!p.eliminated && p.dodgeTimer <= 0f && hypot(p.x - bomb.x, p.y - bomb.y) < 165f) {
                                 p.eliminated = true
                             } else if (!p.eliminated) {
                                 p.score += 1
@@ -672,7 +797,6 @@ class GameEngine(
                 val safeRing = entities.firstOrNull { it.kind == EntityKind.SAFE_ZONE_RING }
                 if (safeRing != null) {
                     if (game.variantIndex == 7) {
-                        // Survival Circle: steadily shrinks!
                         safeRing.radius = (safeRing.radius - 3.2f * dt).coerceAtLeast(110f)
                     }
                     safeRing.timer -= dt
@@ -704,7 +828,9 @@ class GameEngine(
                         soundEngine.playSfx(SfxType.EXPLOSION)
                         spawnBurst(haz.x, haz.y, Color(0xFFEF4444), 14)
                         players.forEach { p ->
-                            if (!p.eliminated && p.jumpZ <= 5f && hypot(p.x - haz.x, p.y - haz.y) < haz.radius + p.radius) {
+                            if (!p.eliminated && p.jumpZ <= 5f && p.dodgeTimer <= 0f &&
+                                hypot(p.x - haz.x, p.y - haz.y) < haz.radius + p.radius
+                            ) {
                                 if (players.count { !it.eliminated } > 1) {
                                     p.eliminated = true
                                 }
@@ -735,10 +861,8 @@ class GameEngine(
                     players.forEach { p ->
                         if (!p.eliminated) {
                             if (game.variantIndex == 1) {
-                                // Chase Ring: holder scores points!
                                 if (p.isTaggedOrCursed) p.score += 4
                             } else {
-                                // Shadow Chase / Bomb Pass: non-cursed players score!
                                 if (!p.isTaggedOrCursed) p.score += 2
                             }
                         }
@@ -774,6 +898,16 @@ class GameEngine(
                         spawnBurst(gate.x, gate.y, p.id.color, 8)
                     }
                 }
+                // Live position tracking (1st, 2nd, 3rd, 4th)
+                val ranked = players.sortedByDescending { p ->
+                    val targetGateIdx = p.progressSteps % gates.size.coerceAtLeast(1)
+                    val gate = gates.firstOrNull { it.value == targetGateIdx }
+                    val distToNext = if (gate != null) hypot(p.x - gate.x, p.y - gate.y) else 0f
+                    p.progressSteps * 10000f - distToNext
+                }
+                ranked.forEachIndexed { rIdx, p ->
+                    p.racePosition = rIdx + 1
+                }
             }
 
             MechanicGroup.BRIDGE_BUILDER -> {
@@ -799,7 +933,6 @@ class GameEngine(
                         it.kind == EntityKind.PUCK_HOCKEY ||
                         it.kind == EntityKind.BALL_TENNIS
                 }.forEach { ball ->
-                    // Player dribble / paddle bounce
                     players.forEach { p ->
                         val d = hypot(ball.x - p.x, ball.y - p.y)
                         val minD = ball.radius + p.radius
@@ -808,14 +941,14 @@ class GameEngine(
                             val ny = (ball.y - p.y) / d
                             ball.x = p.x + nx * (minD + 4f)
                             ball.y = p.y + ny * (minD + 4f)
-                            ball.vx = nx * 420f + p.vx * 0.4f
-                            ball.vy = ny * 420f + p.vy * 0.4f
+                            val kickMult = if (p.attackAnimTimer > 0f) 560f else 390f
+                            ball.vx = nx * kickMult + p.vx * 0.45f
+                            ball.vy = ny * kickMult + p.vy * 0.45f
                             ball.ownerId = p.id.index
                             soundEngine.playSfx(SfxType.COLLISION)
                         }
                     }
 
-                    // Check goal zones (top/bottom or basketball hoop)
                     val hoop = entities.firstOrNull { it.kind == EntityKind.GOLF_HOLE }
                     if (hoop != null && hypot(ball.x - hoop.x, ball.y - hoop.y) < hoop.radius + ball.radius) {
                         val scorer = players.getOrNull(ball.ownerId) ?: players.first()
@@ -826,17 +959,18 @@ class GameEngine(
                         ball.vy = 0f
                         soundEngine.playSfx(SfxType.GOAL)
                         spawnBurst(hoop.x, hoop.y, scorer.id.color, 18)
-                    } else if (ball.y <= 105f || ball.y >= 895f) {
+                    } else if ((ball.y <= 108f || ball.y >= 892f) && ball.x in 280f..720f) {
+                        // Ball entered the Top or Bottom Goal Mouth!
                         val scorer = if (ball.ownerId in players.indices) {
                             players[ball.ownerId]
                         } else {
-                            if (ball.y <= 105f) players.first() else players.last()
+                            if (ball.y <= 108f) players.first() else players.last()
                         }
                         scorer.score += 1
                         ball.x = ARENA_CENTER
                         ball.y = ARENA_CENTER
-                        ball.vx = (Random.nextFloat() - 0.5f) * 280f
-                        ball.vy = if (ball.y <= 105f) 260f else -260f
+                        ball.vx = (Random.nextFloat() - 0.5f) * 260f
+                        ball.vy = if (ball.y <= 108f) 240f else -240f
                         soundEngine.playSfx(SfxType.GOAL)
                         spawnBurst(ARENA_CENTER, ARENA_CENTER, scorer.id.color, 16)
                     }
@@ -928,7 +1062,7 @@ class GameEngine(
                         reactionSignalActive = !reactionSignalActive
                         ring.timer = if (reactionSignalActive) 1.1f else (1.2f + Random.nextFloat() * 1.3f)
                         ring.color = if (reactionSignalActive) Color(0xFF22C55E) else Color(0xFFF59E0B)
-                        ring.label = if (reactionSignalActive) "TAP NOW!" else "WAIT..."
+                        ring.label = if (reactionSignalActive) "STRIKE!" else "WAIT..."
                         if (reactionSignalActive) {
                             soundEngine.playSfx(SfxType.COUNTDOWN_GO)
                         }
@@ -1013,30 +1147,76 @@ class GameEngine(
         if (game.targetScore > 0) {
             val winnerByTarget = players.firstOrNull { it.score >= game.targetScore }
             if (winnerByTarget != null) {
-                finalizeMatch(
-                    reasonEn = "Target reached (${game.targetScore})!",
-                    reasonBn = "টার্গেট অর্জিত হয়েছে (${game.targetScore})!"
-                )
+                val pEn = "${winnerByTarget.id.nameEn} ${winnerByTarget.id.emoji}"
+                val pBn = "${winnerByTarget.id.nameBn} ${winnerByTarget.id.emoji}"
+                val (reasonEn, reasonBn) = buildExplicitVictoryReason(winnerByTarget, pEn, pBn, reachedTarget = true)
+                finalizeMatch(reasonEn = reasonEn, reasonBn = reasonBn)
                 return
             }
         }
 
         // 2. Last surviving player in survival mode?
         if (game.winRule == WinRule.LAST_SURVIVING && alivePlayers.size <= 1 && players.size > 1) {
-            finalizeMatch(
-                reasonEn = "Last Survivor Standing!",
-                reasonBn = "শেষ টিকে থাকা প্লেয়ার বিজয়ী!"
-            )
+            val survivor = alivePlayers.firstOrNull()
+            val reasonEn = if (survivor != null) {
+                "${survivor.id.nameEn} ${survivor.id.emoji} knocked out all rivals as Last Survivor!"
+            } else {
+                "All players eliminated simultaneously!"
+            }
+            val reasonBn = if (survivor != null) {
+                "${survivor.id.nameBn} ${survivor.id.emoji} সবাইকে পরাস্ত করে শেষ পর্যন্ত টিকে জয়ী হয়েছেন!"
+            } else {
+                "সব প্লেয়ার একই সাথে আউট হয়েছেন!"
+            }
+            finalizeMatch(reasonEn = reasonEn, reasonBn = reasonBn)
             return
         }
 
         // 3. Time expired?
         if (remainingSeconds <= 0f) {
-            finalizeMatch(
-                reasonEn = "Time Up — Match Complete!",
-                reasonBn = "সময় শেষ — ম্যাচ সম্পন্ন!"
-            )
+            val top = players.maxByOrNull { it.score } ?: players.first()
+            val pEn = "${top.id.nameEn} ${top.id.emoji}"
+            val pBn = "${top.id.nameBn} ${top.id.emoji}"
+            val (reasonEn, reasonBn) = buildExplicitVictoryReason(top, pEn, pBn, reachedTarget = false)
+            finalizeMatch(reasonEn = reasonEn, reasonBn = reasonBn)
         }
+    }
+
+    private fun buildExplicitVictoryReason(
+        winner: PlayerEntity,
+        pEn: String,
+        pBn: String,
+        reachedTarget: Boolean
+    ): Pair<String, String> = when (game.winRule) {
+        WinRule.MOST_GOALS ->
+            "$pEn scored ${winner.score} goals to win the match!" to
+                "$pBn সর্বোচ্চ ${winner.score}টি গোল করে ম্যাচ জিতেছেন!"
+        WinRule.FIRST_TO_FINISH ->
+            if (reachedTarget) {
+                "$pEn crossed the finish line first (${winner.score} laps/stages)!" to
+                    "$pBn সবার আগে ফিনিশ লাইন অতিক্রম করেছেন (${winner.score} ধাপ)!"
+            } else {
+                "$pEn led the race at time up (${winner.score} laps/stages)!" to
+                    "$pBn সময় শেষে রেসে এগিয়ে থেকে জয়ী হয়েছেন (${winner.score} ধাপ)!"
+            }
+        WinRule.MOST_TERRITORY ->
+            "$pEn captured the largest territory (${winner.score} tiles)!" to
+                "$pBn সবচেয়ে বেশি এলাকা (${winner.score}টি টাইল) দখল করে জিতেছেন!"
+        WinRule.MOST_COLLECTED ->
+            "$pEn collected and secured ${winner.score} items!" to
+                "$pBn সর্বোচ্চ ${winner.score}টি অবজেক্ট সংগ্রহ করে জিতেছেন!"
+        WinRule.BEST_PUZZLE_RESULT ->
+            "$pEn solved the most puzzles (${winner.score} pts)!" to
+                "$pBn সবচেয়ে বেশি পাজল সমাধান করে (${winner.score} পয়েন্ট) জিতেছেন!"
+        WinRule.KING_TIME ->
+            "$pEn controlled the objective zone longest (${winner.score} pts)!" to
+                "$pBn সবচেয়ে বেশি সময় জোন নিয়ন্ত্রণে রেখে (${winner.score} পয়েন্ট) জিতেছেন!"
+        WinRule.LAST_SURVIVING ->
+            "$pEn survived the arena hazards longest (${winner.surviveTimeSec.toInt()}s)!" to
+                "$pBn সবচেয়ে বেশি সময় (${winner.surviveTimeSec.toInt()} সে.) টিকে থেকে জিতেছেন!"
+        else ->
+            "$pEn won with ${winner.score} points!" to
+                "$pBn সর্বোচ্চ ${winner.score} পয়েন্ট অর্জন করে বিজয়ী হয়েছেন!"
     }
 
     private fun finalizeMatch(reasonEn: String, reasonBn: String) {
@@ -1066,16 +1246,16 @@ class GameEngine(
         val results = sorted.mapIndexed { idx, p ->
             val statEn = when (game.winRule) {
                 WinRule.LAST_SURVIVING -> if (!p.eliminated) "Survived (${p.surviveTimeSec.toInt()}s)" else "Eliminated at ${p.surviveTimeSec.toInt()}s"
-                WinRule.MOST_GOALS -> "${p.score} Goals"
+                WinRule.MOST_GOALS -> "${p.score} Goals Scored"
                 WinRule.MOST_TERRITORY -> "${p.score} Tiles Captured"
-                WinRule.FIRST_TO_FINISH -> "${p.score} Stages Completed"
+                WinRule.FIRST_TO_FINISH -> "Position #${p.racePosition} • ${p.score} Stages"
                 else -> "${p.score} Points"
             }
             val statBn = when (game.winRule) {
                 WinRule.LAST_SURVIVING -> if (!p.eliminated) "টিকে ছিল (${p.surviveTimeSec.toInt()} সে.)" else "${p.surviveTimeSec.toInt()} সেকেন্ডে আউট"
-                WinRule.MOST_GOALS -> "${p.score} গোল"
-                WinRule.MOST_TERRITORY -> "${p.score} এলাকা দখল"
-                WinRule.FIRST_TO_FINISH -> "${p.score} ধাপ সম্পন্ন"
+                WinRule.MOST_GOALS -> "${p.score}টি গোল"
+                WinRule.MOST_TERRITORY -> "${p.score}টি টাইল দখল"
+                WinRule.FIRST_TO_FINISH -> "পজিশন #${p.racePosition} • ${p.score} ধাপ"
                 else -> "${p.score} পয়েন্ট"
             }
             PlayerResult(
@@ -1092,11 +1272,11 @@ class GameEngine(
         soundEngine.playSfx(if (winnerId != null) SfxType.WIN else SfxType.GAME_OVER)
         matchResult = MatchResult(
             config = config,
-            winner = winnerId,
+            winner = if (isDraw) null else top.id,
             playerResults = results,
             durationPlayedSeconds = elapsedSeconds.toInt().coerceAtLeast(1),
-            finishReasonEn = reasonEn,
-            finishReasonBn = reasonBn
+            finishReasonEn = if (isDraw) "Match ended in a tie!" else reasonEn,
+            finishReasonBn = if (isDraw) "সমান স্কোর হওয়ায় ম্যাচ ড্র হয়েছে!" else reasonBn
         )
     }
 }

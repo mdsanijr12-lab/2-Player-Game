@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.AppLanguage
@@ -95,13 +96,13 @@ fun ResultScreen(
                 .padding(horizontal = 18.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Animated Trophy Emblem
             Box(
                 modifier = Modifier
                     .scale(trophyScale)
-                    .size(96.dp)
+                    .size(92.dp)
                     .clip(CircleShape)
                     .background(accentColor.copy(alpha = 0.22f))
                     .border(3.dp, accentColor, CircleShape),
@@ -111,11 +112,11 @@ fun ResultScreen(
                     imageVector = Icons.Default.EmojiEvents,
                     contentDescription = null,
                     tint = Color(0xFFFACC15),
-                    modifier = Modifier.size(52.dp)
+                    modifier = Modifier.size(50.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Text(
                 text = if (winner != null) UiStrings.get(lang, "winner") else UiStrings.get(lang, "draw"),
@@ -134,16 +135,39 @@ fun ResultScreen(
                 modifier = Modifier.testTag("winner_title_text")
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            Text(
-                text = "${result.config.game.title(lang)} • ${result.finishReason(lang)}",
-                color = Color(0xFF94A3B8),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
+            // Explicit Victory Reason Banner Card
+            Surface(
+                color = accentColor.copy(alpha = 0.18f),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.5.dp, accentColor.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+                    .testTag("victory_reason_card")
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = result.config.game.title(lang),
+                        color = Color(0xFF94A3B8),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = result.finishReason(lang),
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Match Summary & Ranked Player Scoreboard
             Card(
@@ -230,7 +254,7 @@ fun ResultScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(22.dp))
 
             // Replay Button
             Button(

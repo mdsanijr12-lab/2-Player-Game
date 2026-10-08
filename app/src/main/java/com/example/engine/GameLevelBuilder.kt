@@ -40,10 +40,18 @@ object GameLevelBuilder {
             }
             MechanicGroup.CIRCUIT_RACING -> {
                 listOf(
-                    240f to 760f,
-                    310f to 760f,
-                    240f to 830f,
-                    310f to 830f
+                    200f to 760f,
+                    265f to 760f,
+                    200f to 835f,
+                    265f to 835f
+                )
+            }
+            MechanicGroup.BRAWL_KNOCKBACK -> {
+                listOf(
+                    340f to 660f,
+                    660f to 340f,
+                    340f to 340f,
+                    660f to 660f
                 )
             }
             else -> {
@@ -56,17 +64,27 @@ object GameLevelBuilder {
             }
         }
 
+        val diff = config.botDifficulty
         return (0 until count).map { idx ->
             val pid = PlayerId.entries[idx]
             val pos = spawnPositions[idx]
+            val isBot = config.isBot(idx)
+            val initialAngle = if (pos.second > 500f) (-PI / 2).toFloat() else (PI / 2).toFloat()
+            val speedFactor = if (isBot) {
+                diff.minSpeedScale + Random.nextFloat() * (diff.maxSpeedScale - diff.minSpeedScale)
+            } else {
+                1.0f
+            }
             PlayerEntity(
                 id = pid,
-                isBot = config.isBot(idx),
+                isBot = isBot,
                 x = pos.first,
                 y = pos.second,
-                angleRad = if (pos.second > 500f) (-PI / 2).toFloat() else (PI / 2).toFloat(),
+                angleRad = initialAngle,
+                turretAngleRad = initialAngle,
                 isTaggedOrCursed = (config.game.mechanicGroup == MechanicGroup.TAG_PASS_CURSE && idx == 0),
                 morphShape = MorphShape.entries[idx % 3],
+                botSpeedFactor = speedFactor,
                 basePos = pos
             )
         }
@@ -85,10 +103,9 @@ object GameLevelBuilder {
 
         when (game.mechanicGroup) {
             MechanicGroup.BRAWL_KNOCKBACK -> {
-                // Safe ring radius indicator
                 val ringRadius = when (game.variantIndex) {
-                    1 -> 340f // Balance Ball
-                    4 -> 350f // Push Arena Sumo
+                    1 -> 345f // Balance Ball gyro platform
+                    4 -> 355f // Push Arena Sumo Dohyo
                     else -> 380f
                 }
                 entities.add(
@@ -102,7 +119,6 @@ object GameLevelBuilder {
                     )
                 )
                 if (game.variantIndex == 3) {
-                    // Magnet Arena: metallic orbs to pull
                     repeat(6) { i ->
                         val ang = i * PI / 3
                         entities.add(
@@ -189,7 +205,6 @@ object GameLevelBuilder {
 
             MechanicGroup.SAFE_ZONE_SURVIVAL -> {
                 if (game.variantIndex in listOf(3, 4, 5)) {
-                    // Grid-based survival (Lava Floor, Last Square, Safe Tile)
                     gridSize = 6
                     val step = 1000f / gridSize
                     for (r in 0 until gridSize) {
@@ -206,7 +221,6 @@ object GameLevelBuilder {
                             )
                         }
                     }
-                    // Keep spawn cells safe initially
                     entities.add(
                         WorldEntity(
                             uid = nextUid(),
@@ -252,7 +266,6 @@ object GameLevelBuilder {
                         )
                     )
                 }
-                // Bonus stars to collect while dodging
                 repeat(4) { i ->
                     entities.add(
                         WorldEntity(
@@ -268,7 +281,6 @@ object GameLevelBuilder {
             }
 
             MechanicGroup.TAG_PASS_CURSE -> {
-                // Spawn light orbs for non-cursed players to collect
                 repeat(5) { i ->
                     val ang = i * 2 * PI / 5
                     entities.add(
@@ -303,12 +315,11 @@ object GameLevelBuilder {
             }
 
             MechanicGroup.CIRCUIT_RACING, MechanicGroup.CHECKPOINT_RUSH -> {
-                // 4 track checkpoints around the circuit
                 val gates = listOf(
-                    220f to 220f,
-                    780f to 220f,
-                    780f to 780f,
-                    220f to 780f
+                    200f to 200f,
+                    800f to 200f,
+                    800f to 800f,
+                    200f to 800f
                 )
                 gates.forEachIndexed { idx, (gx, gy) ->
                     entities.add(
@@ -317,10 +328,10 @@ object GameLevelBuilder {
                             kind = EntityKind.CHECKPOINT_GATE,
                             x = gx,
                             y = gy,
-                            radius = 65f,
+                            radius = 70f,
                             value = idx,
-                            label = "CP ${idx + 1}",
-                            color = Color(0xFFFACC15)
+                            label = if (idx == 3) "FINISH" else "CP ${idx + 1}",
+                            color = if (idx == 3) Color(0xFF4ADE80) else Color(0xFFFACC15)
                         )
                     )
                 }
@@ -380,11 +391,10 @@ object GameLevelBuilder {
             }
 
             MechanicGroup.BASKET_SHOOT -> {
-                // Target hoop at top-center + two basketballs
                 entities.add(
                     WorldEntity(
                         uid = nextUid(),
-                        kind = EntityKind.GOLF_HOLE, // Acts as hoop target
+                        kind = EntityKind.GOLF_HOLE,
                         x = ARENA_CENTER,
                         y = 180f,
                         vx = if (game.variantIndex == 1) 140f else 0f,
@@ -407,7 +417,7 @@ object GameLevelBuilder {
             }
 
             MechanicGroup.PADDLE_DEFENSE -> {
-                val puckCount = if (game.variantIndex == 3) 3 else 1 // Goal Keeper has multi-balls
+                val puckCount = if (game.variantIndex == 3) 3 else 1
                 repeat(puckCount) { i ->
                     val ang = (i * 2.1f) + 0.7f
                     entities.add(
@@ -426,7 +436,6 @@ object GameLevelBuilder {
             }
 
             MechanicGroup.BOWLING_ROLL -> {
-                // 10-pin rack near top
                 val rows = listOf(1, 2, 3, 4)
                 var pinIndex = 0
                 rows.forEachIndexed { rIdx, count ->

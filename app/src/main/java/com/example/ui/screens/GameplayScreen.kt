@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
@@ -55,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -85,10 +87,12 @@ fun GameplayScreen(
     onExitToSelection: () -> Unit
 ) {
     var restartGeneration by remember { mutableIntStateOf(0) }
-    var countdownStep by remember(restartGeneration) { mutableIntStateOf(3) } // 3, 2, 1, 0(GO!), -1(Playing)
+    // countdownStep: 4 = 2.2s Brief Instruction Overlay, 3 = "3", 2 = "2", 1 = "1", 0 = "GO!", -1 = Active Gameplay
+    var countdownStep by remember(restartGeneration) { mutableIntStateOf(4) }
     var isPaused by remember(restartGeneration) { mutableStateOf(false) }
     var frameTick by remember { mutableLongStateOf(0L) }
 
+    val scheme = config.game.effectiveControlScheme
     val engine = remember(config, restartGeneration) {
         GameEngine(
             config = config,
@@ -98,7 +102,6 @@ fun GameplayScreen(
         )
     }
 
-    // Back button behavior: in VS_BOT, opens pause menu; in PVP, exits to selection
     BackHandler {
         if (config.mode == MatchMode.VS_BOT) {
             isPaused = !isPaused
@@ -107,24 +110,26 @@ fun GameplayScreen(
         }
     }
 
-    // 3 -> 2 -> 1 -> GO! Countdown sequence
+    // Core Loop: START -> BRIEF INSTRUCTION (2.1s) -> COUNTDOWN (3, 2, 1, GO!) -> GAMEPLAY
     LaunchedEffect(restartGeneration) {
+        countdownStep = 4
+        delay(2100)
         countdownStep = 3
         soundEngine.playSfx(SfxType.COUNTDOWN_TICK)
-        delay(750)
+        delay(650)
         countdownStep = 2
         soundEngine.playSfx(SfxType.COUNTDOWN_TICK)
-        delay(750)
+        delay(650)
         countdownStep = 1
         soundEngine.playSfx(SfxType.COUNTDOWN_TICK)
-        delay(750)
+        delay(650)
         countdownStep = 0
         soundEngine.playSfx(SfxType.COUNTDOWN_GO)
-        delay(550)
+        delay(500)
         countdownStep = -1
     }
 
-    // 60 FPS Real-Time Game Loop (runs only after countdown completes and when not paused)
+    // 60 FPS Real-Time Game Loop
     LaunchedEffect(countdownStep, isPaused, restartGeneration) {
         if (countdownStep == -1 && !isPaused) {
             var lastNanos = 0L
@@ -145,7 +150,6 @@ fun GameplayScreen(
         }
     }
 
-    // Read frameTick to trigger Canvas and HUD recomposition smoothly
     val currentTick = frameTick
     val remainingSecInt = ceil(engine.remainingSeconds).toInt().coerceAtLeast(0)
     val mins = remainingSecInt / 60
@@ -175,7 +179,7 @@ fun GameplayScreen(
                     score = p2.score,
                     eliminated = p2.eliminated,
                     isBot = p2.isBot,
-                    controlScheme = config.game.controlScheme,
+                    controlScheme = scheme,
                     lang = lang,
                     invertedTopPlayer = true,
                     compactCornerMode = false,
@@ -185,7 +189,6 @@ fun GameplayScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
-                // 3 or 4 players: Top-Left (P3 Yellow) and Top-Right (P2 Blue)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -197,7 +200,7 @@ fun GameplayScreen(
                             score = p3.score,
                             eliminated = p3.eliminated,
                             isBot = p3.isBot,
-                            controlScheme = config.game.controlScheme,
+                            controlScheme = scheme,
                             lang = lang,
                             invertedTopPlayer = true,
                             compactCornerMode = true,
@@ -213,7 +216,7 @@ fun GameplayScreen(
                         score = p2.score,
                         eliminated = p2.eliminated,
                         isBot = p2.isBot,
-                        controlScheme = config.game.controlScheme,
+                        controlScheme = scheme,
                         lang = lang,
                         invertedTopPlayer = true,
                         compactCornerMode = true,
@@ -240,7 +243,6 @@ fun GameplayScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Fixed Match Timer Pill
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -264,7 +266,6 @@ fun GameplayScreen(
                         )
                     }
 
-                    // Game Name & Active Prompt Banner
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -290,7 +291,7 @@ fun GameplayScreen(
                         )
                     }
 
-                    // PAUSE BUTTON: Visible ONLY in VS BOT mode! (Strictly no pause button in PVP)
+                    // Pause button ONLY in VS BOT mode
                     if (config.mode == MatchMode.VS_BOT) {
                         IconButton(
                             onClick = { isPaused = true },
@@ -308,7 +309,6 @@ fun GameplayScreen(
                             )
                         }
                     } else {
-                        // In PVP mode, show compact PVP badge without any pause button
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
@@ -339,7 +339,6 @@ fun GameplayScreen(
                         .aspectRatio(1f, matchHeightConstraintsFirst = true)
                         .testTag("arena_canvas")
                 ) {
-                    // Reference currentTick so Compose redraws every frame
                     if (currentTick >= 0L) {
                         renderArena(engine = engine, textMeasurer = textMeasurer)
                     }
@@ -354,7 +353,7 @@ fun GameplayScreen(
                     score = p1.score,
                     eliminated = p1.eliminated,
                     isBot = false,
-                    controlScheme = config.game.controlScheme,
+                    controlScheme = scheme,
                     lang = lang,
                     invertedTopPlayer = false,
                     compactCornerMode = false,
@@ -364,7 +363,6 @@ fun GameplayScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
-                // 4 Local Human Players: Bottom-Left (P1 Red) and Bottom-Right (P4 Green)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -375,7 +373,7 @@ fun GameplayScreen(
                         score = p1.score,
                         eliminated = p1.eliminated,
                         isBot = false,
-                        controlScheme = config.game.controlScheme,
+                        controlScheme = scheme,
                         lang = lang,
                         invertedTopPlayer = false,
                         compactCornerMode = true,
@@ -390,7 +388,7 @@ fun GameplayScreen(
                         score = p4.score,
                         eliminated = p4.eliminated,
                         isBot = p4.isBot,
-                        controlScheme = config.game.controlScheme,
+                        controlScheme = scheme,
                         lang = lang,
                         invertedTopPlayer = false,
                         compactCornerMode = true,
@@ -403,42 +401,118 @@ fun GameplayScreen(
             }
         }
 
-        // ==================== 3 - 2 - 1 - GO! COUNTDOWN OVERLAY ====================
+        // ==================== PRE-MATCH BRIEF INSTRUCTION + 3-2-1-GO! OVERLAY ====================
         AnimatedVisibility(
             visible = countdownStep >= 0,
             enter = fadeIn() + scaleIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.Center)
         ) {
-            val pulseScale by animateFloatAsState(
-                targetValue = if (countdownStep == 0) 1.2f else 1.0f,
-                animationSpec = tween(250),
-                label = "countdown_pulse"
-            )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xAA090D16))
+                    .background(Color(0xBF090D16))
                     .testTag("countdown_overlay"),
                 contentAlignment = Alignment.Center
             ) {
-                Surface(
-                    modifier = Modifier
-                        .scale(pulseScale)
-                        .border(3.dp, Color(0xFF38BDF8), CircleShape),
-                    shape = CircleShape,
-                    color = Color(0xFF1E293B)
-                ) {
-                    Box(
-                        modifier = Modifier.size(150.dp),
-                        contentAlignment = Alignment.Center
+                if (countdownStep == 4) {
+                    // Brief 2-3 Second Instruction Banner before Countdown
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth(0.88f)
+                            .border(2.dp, config.game.category.accentColor, RoundedCornerShape(22.dp))
+                            .testTag("instruction_overlay_card"),
+                        shape = RoundedCornerShape(22.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
                     ) {
-                        Text(
-                            text = if (countdownStep > 0) "$countdownStep" else UiStrings.get(lang, "ready_go"),
-                            color = if (countdownStep == 0) Color(0xFF4ADE80) else Color.White,
-                            fontSize = 46.sp,
-                            fontWeight = FontWeight.Black
-                        )
+                        Column(
+                            modifier = Modifier.padding(22.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = UiStrings.get(lang, "get_ready"),
+                                color = Color(0xFFFACC15),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold
+                            )
+                            Text(
+                                text = config.game.title(lang),
+                                color = Color.White,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Black,
+                                textAlign = TextAlign.Center
+                            )
+                            Surface(
+                                color = Color(0xFF0F172A),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(14.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = config.game.briefInstruction(lang),
+                                        color = Color(0xFF4ADE80),
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Text(
+                                        text = "${UiStrings.get(lang, "win_condition")}: ${config.game.winRule.label(lang)}",
+                                        color = Color(0xFFCBD5E1),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Gamepad,
+                                    contentDescription = null,
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "${UiStrings.get(lang, "controls")}: ${scheme.description(lang)}",
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    val pulseScale by animateFloatAsState(
+                        targetValue = if (countdownStep == 0) 1.2f else 1.0f,
+                        animationSpec = tween(250),
+                        label = "countdown_pulse"
+                    )
+                    Surface(
+                        modifier = Modifier
+                            .scale(pulseScale)
+                            .border(3.dp, Color(0xFF38BDF8), CircleShape),
+                        shape = CircleShape,
+                        color = Color(0xFF1E293B)
+                    ) {
+                        Box(
+                            modifier = Modifier.size(150.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (countdownStep > 0) "$countdownStep" else UiStrings.get(lang, "ready_go"),
+                                color = if (countdownStep == 0) Color(0xFF4ADE80) else Color.White,
+                                fontSize = 46.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
                     }
                 }
             }
